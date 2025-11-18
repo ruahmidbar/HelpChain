@@ -1,0 +1,201 @@
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { 
+  HandHeart, 
+  HelpCircle, 
+  Users, 
+  List
+} from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const currentUser = await base44.auth.me();
+        setUser(currentUser);
+      } catch (error) {
+        console.error("Error fetching user:", error);
+      }
+    };
+    fetchUser();
+  }, []);
+
+  const myActions = [
+    {
+      title: "אני מבקש עזרה",
+      description: "מצא תלמיד שיעזור לך בנושא שאתה צריך",
+      icon: HelpCircle,
+      color: "from-blue-500 to-cyan-500",
+      hoverColor: "hover:from-blue-600 hover:to-cyan-600",
+      path: "RequestHelp"
+    },
+    {
+      title: "אני מוכן לעזור",
+      description: "הציע עזרה לתלמידים אחרים וצבור נקודות",
+      icon: HandHeart,
+      color: "from-purple-500 to-pink-500",
+      hoverColor: "hover:from-purple-600 hover:to-pink-600",
+      path: "OfferHelp"
+    }
+  ];
+
+  const browseLists = [
+    {
+      title: "רשימת תלמידים שמבקשים עזרה",
+      description: "ראה מי צריך עזרה והציע לו את השירותים שלך",
+      icon: Users,
+      color: "from-orange-500 to-red-500",
+      hoverColor: "hover:from-orange-600 hover:to-red-600",
+      path: "BrowseRequests"
+    },
+    {
+      title: "רשימת תלמידים שמציעים עזרה",
+      description: "דפדף בתלמידים שמציעים עזרה ובקש מהם",
+      icon: List,
+      color: "from-green-500 to-teal-500",
+      hoverColor: "hover:from-green-600 hover:to-teal-600",
+      path: "BrowseOffers"
+    }
+  ];
+
+  return (
+    <div className="min-h-screen p-4 md:p-6" dir="rtl">
+      <div className="max-w-6xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="text-center mb-6">
+            <h1 className="text-3xl md:text-4xl font-bold mb-3">
+              <span className="bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                שלום, {user?.first_name || "תלמיד"}! 👋
+              </span>
+            </h1>
+            <p className="text-lg text-gray-600">
+              מה תרצה לעשות היום?
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 mb-3 pr-2">הפעולות שלי</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                {myActions.map((action, index) => (
+                  <motion.div
+                    key={action.title}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1, duration: 0.5 }}
+                  >
+                    <Card 
+                      className="overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer bg-white/90 backdrop-blur-sm h-full"
+                      onClick={() => navigate(createPageUrl(action.path))}
+                    >
+                      <CardContent className="p-0">
+                        <div className={`bg-gradient-to-br ${action.color} ${action.hoverColor} p-5 transition-all duration-300 flex items-start gap-4`}>
+                          <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center flex-shrink-0">
+                            <action.icon className="w-7 h-7 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-white mb-1">
+                              {action.title}
+                            </h3>
+                            <p className="text-white/90 text-sm leading-relaxed">
+                              {action.description}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 mb-3 pr-2">רשימות</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                {browseLists.map((list, index) => (
+                  <motion.div
+                    key={list.title}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 + index * 0.1, duration: 0.5 }}
+                  >
+                    <Card 
+                      className="overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer bg-white/90 backdrop-blur-sm h-full"
+                      onClick={() => navigate(createPageUrl(list.path))}
+                    >
+                      <CardContent className="p-0">
+                        <div className={`bg-gradient-to-br ${list.color} ${list.hoverColor} p-5 transition-all duration-300 flex items-start gap-4`}>
+                          <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center flex-shrink-0">
+                            <list.icon className="w-7 h-7 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-white mb-1">
+                              {list.title}
+                            </h3>
+                            <p className="text-white/90 text-sm leading-relaxed">
+                              {list.description}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {user && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5, duration: 0.6 }}
+              className="mt-6"
+            >
+              <Card className="bg-gradient-to-l from-yellow-50 to-orange-50 border-yellow-200 shadow-lg">
+                <CardContent className="p-5">
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="text-center md:text-right">
+                      <h3 className="text-xl font-bold text-gray-900 mb-1">
+                        הפרופיל שלך
+                      </h3>
+                      <p className="text-gray-600">
+                        המשך לעזור לאחרים והתקדם בדרגות!
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-8">
+                      <div className="text-center">
+                        <div className="text-xs text-gray-600 font-medium mb-1">נקודות</div>
+                        <div className="text-3xl font-bold bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                          {user.points || 0}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xs text-gray-600 font-medium mb-1">דרגה</div>
+                        <div className="text-xl font-bold text-yellow-600">
+                          {user.rank || "הלפר"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,130 @@
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ArrowRight, Calendar, Clock, MapPin, MessageCircle } from "lucide-react";
+
+export default function BrowseOffers() {
+  const navigate = useNavigate();
+
+  const { data: offers = [], isLoading } = useQuery({
+    queryKey: ['help-offers'],
+    queryFn: () => base44.entities.HelpOffer.filter({ status: "פעיל" }, '-created_date'),
+    initialData: [],
+  });
+
+  const { data: subjects = [] } = useQuery({
+    queryKey: ['subjects'],
+    queryFn: () => base44.entities.Subject.list(),
+    initialData: [],
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const getHelperName = (helperId) => {
+    const user = users.find(u => u.id === helperId);
+    return user ? `${user.first_name} ${user.last_name}` : "תלמיד";
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" dir="rtl">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">טוען הצעות...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen p-6 md:p-10" dir="rtl">
+      <div className="max-w-6xl mx-auto">
+        <Button
+          variant="ghost"
+          onClick={() => navigate(createPageUrl("Dashboard"))}
+          className="mb-6"
+        >
+          <ArrowRight className="w-4 h-4 ml-2" />
+          חזור לדף הבית
+        </Button>
+
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-l from-green-600 to-teal-600 bg-clip-text text-transparent mb-2">
+            תלמידים שמציעים עזרה
+          </h1>
+          <p className="text-gray-600 text-lg">בחר תלמיד וקבע איתו פגישה</p>
+        </div>
+
+        {offers.length === 0 ? (
+          <Card className="bg-white/90 backdrop-blur-sm shadow-lg">
+            <CardContent className="p-12 text-center">
+              <p className="text-gray-500 text-lg">אין הצעות עזרה כרגע</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-6">
+            {offers.map((offer) => (
+              <Card key={offer.id} className="bg-white/90 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300">
+                <CardHeader>
+                  <CardTitle className="text-xl flex items-center justify-between">
+                    <span>{getHelperName(offer.helper_id)}</span>
+                    <Badge className="bg-green-100 text-green-800 border-0">
+                      מציע עזרה
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-sm text-gray-600 mb-2">תחומים:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {offer.subjects?.map((subjectId, idx) => (
+                        <Badge key={idx} variant="outline" className="border-purple-300">
+                          {subjects.find(s => s.id === subjectId)?.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      <span>
+                        {new Date(offer.start_date).toLocaleDateString('he-IL')} - {new Date(offer.end_date).toLocaleDateString('he-IL')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>משך שיעור: {offer.lesson_duration} דקות</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      <span>מקום: {offer.custom_place || offer.meeting_place}</span>
+                    </div>
+                  </div>
+                  <Button
+                    className="w-full bg-gradient-to-l from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700"
+                    onClick={() => {
+                      /* TODO: implement messaging */
+                      navigate(createPageUrl("Messages"));
+                    }}
+                  >
+                    <MessageCircle className="w-4 h-4 ml-2" />
+                    שלח הודעה
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
