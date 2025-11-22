@@ -1,0 +1,198 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Calendar } from "lucide-react";
+import { toast } from "sonner";
+
+export default function ConfirmMeetingDialog({ targetUserId, targetUserName, requestData, subjects = [] }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    subject_id: "",
+    date: "",
+    time: "",
+    duration: "60",
+    place: ""
+  });
+
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const confirmMeetingMutation = useMutation({
+    mutationFn: async (data) => {
+      // יצירת פגישה במערכת
+      const meeting = await base44.entities.Meeting.create({
+        helper_id: currentUser.id,
+        requester_id: targetUserId,
+        subject_id: data.subject_id,
+        date: data.date,
+        time: data.time,
+        duration: data.duration,
+        place: data.place,
+        status: "ממתין לאישור"
+      });
+      
+      // שליחת מייל עם ארוע ליומן
+      const targetUser = await base44.entities.User.list();
+      const recipient = targetUser.find(u => u.id === targetUserId);
+      const subjectName = subjects.find(s => s.id === data.subject_id)?.name || "";
+      
+      if (recipient?.email) {
+        const startDateTime = new Date(`${data.date}T${data.time}`);
+        const endDateTime = new Date(startDateTime.getTime() + parseInt(data.duration) * 60000);
+        
+        const formatDateTime = (date) => {
+          return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+        };
+
+        try {
+          await base44.integrations.Core.SendEmail({
+            to: recipient.email,
+            subject: `פגישת לימוד - ${subjectName} - HelpChain`,
+            body: `
+שלום ${recipient.first_name || 'תלמיד'},
+
+${currentUser.first_name} ${currentUser.last_name} מאשר/ת פגישת לימוד!
+
+פרטי הפגישה:
+📚 מקצוע: ${subjectName}
+📅 תאריך: ${new Date(data.date).toLocaleDateString('he-IL')}
+⏰ שעה: ${data.time}
+⏱️ משך: ${data.duration} דקות
+📍 מקום: ${data.place}
+
+לחץ כאן להוספה ליומן:
+https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`פגישת לימוד - ${subjectName}`)}&dates=${formatDateTime(startDateTime)}/${formatDateTime(endDateTime)}&details=${encodeURIComponent(`פגישת לימוד עם ${currentUser.first_name} ${currentUser.last_name}`)}&location=${encodeURIComponent(data.place)}
+
+בהצלחה!
+צוות HelpChain
+            `
+          });
+        } catch (error) {
+          console.error('Failed to send email:', error);
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['meetings']);
+      toast.success("הפגישה אושרה ונשלח מייל!");
+      setOpen(false);
+      setFormData({
+        subject_id: "",
+        date: "",
+        time: "",
+        duration: "60",
+        place: ""
+      });
+    },
+    onError: () => {
+      toast.error("אירעה שגיאה באישור הפגישה");
+    }
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    if (!formData.subject_id || !formData.date || !formData.time || !formData.place) {
+      toast.error("נא למלא את כל השדות");
+      return;
+    }
+
+    confirmMeetingMutation.mutate(formData);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="bg-gradient-to-l from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700">
+          <Calendar className="w-4 h-4 ml-2" />
+          אישור פגישה
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md" dir="rtl">
+        <DialogHeader>
+          <DialogTitle>אישור פגישה עם {targetUserName}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label>מקצוע *</Label>
+            <Select value={formData.subject_id} onValueChange={(val) => setFormData({...formData, subject_id: val})}>
+              <SelectTrigger className="mt-2">
+                <SelectValue placeholder="בחר מקצוע" />
+              </SelectTrigger>
+              <SelectContent>
+                {requestData?.subjects?.map(subId => {
+                  const subject = subjects.find(s => s.id === subId);
+                  return subject ? (
+                    <SelectItem key={subject.id} value={subject.id}>{subject.name}</SelectItem>
+                  ) : null;
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>תאריך *</Label>
+              <Input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+                className="mt-2"
+                required
+              />
+            </div>
+            <div>
+              <Label>שעה *</Label>
+              <Input
+                type="time"
+                value={formData.time}
+                onChange={(e) => setFormData({...formData, time: e.target.value})}
+                onClick={(e) => e.target.showPicker?.()}
+                className="mt-2 cursor-pointer"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>משך (דקות) *</Label>
+              <Select value={formData.duration} onValueChange={(val) => setFormData({...formData, duration: val})}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">30 דקות</SelectItem>
+                  <SelectItem value="45">45 דקות</SelectItem>
+                  <SelectItem value="60">60 דקות</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>מקום *</Label>
+              <Input
+                value={formData.place}
+                onChange={(e) => setFormData({...formData, place: e.target.value})}
+                placeholder="לדוגמה: ספרייה"
+                className="mt-2"
+                required
+              />
+            </div>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={confirmMeetingMutation.isLoading}>
+            {confirmMeetingMutation.isLoading ? "מאשר..." : "אשר פגישה"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,0 +1,112 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { MessageCircle } from "lucide-react";
+import { toast } from "sonner";
+
+export default function MessageDialog({ targetUserId, targetUserName }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [messageText, setMessageText] = useState("");
+
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async (data) => {
+      await base44.entities.Message.create(data);
+      
+      // שליחת מייל למשתמש המקבל
+      const targetUser = await base44.entities.User.list();
+      const recipient = targetUser.find(u => u.id === targetUserId);
+      
+      if (recipient?.email) {
+        try {
+          await base44.integrations.Core.SendEmail({
+            to: recipient.email,
+            subject: `הודעה חדשה מ-${currentUser.first_name} ${currentUser.last_name} - HelpChain`,
+            body: `
+שלום ${recipient.first_name || 'תלמיד'},
+
+קיבלת הודעה חדשה מ-${currentUser.first_name} ${currentUser.last_name}:
+
+"${data.content}"
+
+היכנס לאפליקציה כדי להגיב:
+${window.location.origin}
+
+בהצלחה,
+צוות HelpChain
+            `
+          });
+        } catch (error) {
+          console.error('Failed to send email:', error);
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['messages']);
+      toast.success("ההודעה נשלחה בהצלחה!");
+      setOpen(false);
+      setMessageText("");
+    },
+    onError: () => {
+      toast.error("אירעה שגיאה בשליחת ההודעה");
+    }
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    if (!messageText.trim()) {
+      toast.error("נא להזין הודעה");
+      return;
+    }
+
+    sendMessageMutation.mutate({
+      from_user_id: currentUser.id,
+      to_user_id: targetUserId,
+      content: messageText,
+      type: "הודעה רגילה",
+      is_read: false
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="bg-gradient-to-l from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700">
+          <MessageCircle className="w-4 h-4 ml-2" />
+          שלח הודעה
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md" dir="rtl">
+        <DialogHeader>
+          <DialogTitle>שלח הודעה ל-{targetUserName}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label>הודעה *</Label>
+            <Textarea
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              placeholder="כתוב את ההודעה שלך כאן..."
+              className="mt-2 min-h-[120px]"
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={sendMessageMutation.isLoading}>
+            {sendMessageMutation.isLoading ? "שולח..." : "שלח הודעה"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
