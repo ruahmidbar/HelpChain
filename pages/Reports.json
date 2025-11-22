@@ -1,0 +1,314 @@
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowRight, Search, FileText, TrendingUp, Award } from "lucide-react";
+
+export default function Reports() {
+  const navigate = useNavigate();
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const { data: user } = useQuery({
+    queryKey: ['current-user'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: students = [] } = useQuery({
+    queryKey: ['students'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: helpRequests = [] } = useQuery({
+    queryKey: ['all-help-requests'],
+    queryFn: () => base44.entities.HelpRequest.list(),
+    initialData: [],
+  });
+
+  const { data: helpOffers = [] } = useQuery({
+    queryKey: ['all-help-offers'],
+    queryFn: () => base44.entities.HelpOffer.list(),
+    initialData: [],
+  });
+
+  const { data: subjects = [] } = useQuery({
+    queryKey: ['subjects'],
+    queryFn: () => base44.entities.Subject.list(),
+    initialData: [],
+  });
+
+  const { data: grades = [] } = useQuery({
+    queryKey: ['grades'],
+    queryFn: () => base44.entities.Grade.list(),
+    initialData: [],
+  });
+
+  const filteredStudents = students.filter(s => 
+    s.first_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.last_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const getStudentRequests = (studentId) => {
+    return helpRequests.filter(r => r.requester_id === studentId);
+  };
+
+  const getStudentOffers = (studentId) => {
+    return helpOffers.filter(o => o.helper_id === studentId);
+  };
+
+  const calculateTotalHours = (items) => {
+    let total = 0;
+    items.forEach(item => {
+      if (item.available_hours) {
+        item.available_hours.forEach(hour => {
+          const start = new Date(`2000-01-01T${hour.start_time}`);
+          const end = new Date(`2000-01-01T${hour.end_time}`);
+          total += (end - start) / (1000 * 60 * 60);
+        });
+      }
+    });
+    return total.toFixed(1);
+  };
+
+  if (user?.role !== 'admin') {
+    return (
+      <div className="min-h-screen p-10 flex items-center justify-center" dir="rtl">
+        <Card>
+          <CardContent className="p-12 text-center">
+            <h2 className="text-2xl font-bold mb-4">גישה נדחתה</h2>
+            <p className="text-gray-600 mb-6">רק צוות בית הספר יכול לגשת לדף זה</p>
+            <Button onClick={() => navigate(createPageUrl("Dashboard"))}>
+              חזור לדף הבית
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen p-6 md:p-10" dir="rtl">
+      <div className="max-w-7xl mx-auto">
+        <div className="sticky top-0 z-20 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 pb-4 pt-2">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(createPageUrl("Dashboard"))}
+            className="bg-white shadow-md"
+          >
+            <ArrowRight className="w-4 h-4 ml-2" />
+            חזור לדף הבית
+          </Button>
+        </div>
+
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+            ניתוח ודוחות
+          </h1>
+          <p className="text-gray-600 text-lg">צפייה בפעילות התלמידים, ניקוד ודרגות</p>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+            <CardHeader>
+              <CardTitle>בחר תלמיד</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4">
+                <Label>חיפוש</Label>
+                <Input
+                  placeholder="חפש לפי שם או אימייל..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="mt-2"
+                />
+              </div>
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {filteredStudents.map((student) => (
+                  <button
+                    key={student.id}
+                    onClick={() => setSelectedStudent(student)}
+                    className={`w-full text-right p-3 rounded-xl transition-colors ${
+                      selectedStudent?.id === student.id
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'hover:bg-gray-100'
+                    }`}
+                  >
+                    <p className="font-medium">
+                      {student.first_name} {student.last_name}
+                    </p>
+                    <p className="text-xs text-gray-500">{student.email}</p>
+                    <div className="flex gap-2 mt-2">
+                      <Badge className="text-xs">{student.rank || "הלפר"}</Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {student.points || 0} נקודות
+                      </Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="lg:col-span-2">
+            {!selectedStudent ? (
+              <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+                <CardContent className="p-12 text-center">
+                  <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">בחר תלמיד כדי לראות את הדוח שלו</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                <Card className="bg-gradient-to-l from-yellow-50 to-orange-50 border-yellow-200 shadow-xl">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>
+                        {selectedStudent.first_name} {selectedStudent.last_name}
+                      </span>
+                      <Award className="w-6 h-6 text-yellow-600" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div className="text-center p-4 bg-white rounded-xl">
+                        <p className="text-sm text-gray-600 mb-1">נקודות</p>
+                        <p className="text-3xl font-bold text-purple-600">
+                          {selectedStudent.points || 0}
+                        </p>
+                      </div>
+                      <div className="text-center p-4 bg-white rounded-xl">
+                        <p className="text-sm text-gray-600 mb-1">דרגה</p>
+                        <p className="text-xl font-bold text-yellow-600">
+                          {selectedStudent.rank || "הלפר"}
+                        </p>
+                      </div>
+                      <div className="text-center p-4 bg-white rounded-xl">
+                        <p className="text-sm text-gray-600 mb-1">כיתה</p>
+                        <p className="text-lg font-bold text-blue-600">
+                          {grades.find(g => g.id === selectedStudent.grade_id)?.name || "לא צוין"}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+                  <CardHeader>
+                    <CardTitle>בקשות עזרה ({getStudentRequests(selectedStudent.id).length})</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {getStudentRequests(selectedStudent.id).length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">אין בקשות עזרה</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {getStudentRequests(selectedStudent.id).map((request) => (
+                          <div key={request.id} className="p-3 bg-blue-50 rounded-xl">
+                            <div className="flex items-start justify-between mb-2">
+                              <Badge className="bg-blue-100 text-blue-800">
+                                {request.status}
+                              </Badge>
+                              <p className="text-xs text-gray-500">
+                                {new Date(request.created_date).toLocaleDateString('he-IL')}
+                              </p>
+                            </div>
+                            <div className="text-sm">
+                              <p className="font-bold mb-1">מקצועות:</p>
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {request.subjects?.map((subId) => (
+                                  <Badge key={subId} variant="outline" className="text-xs">
+                                    {subjects.find(s => s.id === subId)?.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                              <p className="text-gray-600">
+                                תאריכים: {new Date(request.start_date).toLocaleDateString('he-IL')} - {new Date(request.end_date).toLocaleDateString('he-IL')}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="pt-3 border-t">
+                          <p className="text-sm font-bold">
+                            סה"כ שעות זמינות משוערות: {calculateTotalHours(getStudentRequests(selectedStudent.id))} שעות
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+                  <CardHeader>
+                    <CardTitle>הצעות עזרה ({getStudentOffers(selectedStudent.id).length})</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {getStudentOffers(selectedStudent.id).length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">אין הצעות עזרה</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {getStudentOffers(selectedStudent.id).map((offer) => (
+                          <div key={offer.id} className="p-3 bg-purple-50 rounded-xl">
+                            <div className="flex items-start justify-between mb-2">
+                              <Badge className="bg-purple-100 text-purple-800">
+                                {offer.status}
+                              </Badge>
+                              <p className="text-xs text-gray-500">
+                                {new Date(offer.created_date).toLocaleDateString('he-IL')}
+                              </p>
+                            </div>
+                            <div className="text-sm">
+                              <p className="font-bold mb-1">מקצועות:</p>
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {offer.subjects?.map((subId) => (
+                                  <Badge key={subId} variant="outline" className="text-xs">
+                                    {subjects.find(s => s.id === subId)?.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                              <p className="text-gray-600 mb-1">
+                                משך שיעור: {offer.lesson_duration} דקות
+                              </p>
+                              <p className="text-gray-600">
+                                מקום: {offer.custom_place || offer.meeting_place}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="pt-3 border-t">
+                          <p className="text-sm font-bold">
+                            סה"כ שעות זמינות משוערות: {calculateTotalHours(getStudentOffers(selectedStudent.id))} שעות
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+                  <CardHeader>
+                    <CardTitle>פרטי הורה</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm">
+                      <p><span className="font-bold">סוג הורה:</span> {selectedStudent.parent_type || "לא צוין"}</p>
+                      <p><span className="font-bold">שם ההורה:</span> {selectedStudent.parent_name || "לא צוין"}</p>
+                      <p><span className="font-bold">אימייל הורה:</span> {selectedStudent.parent_email || "לא צוין"}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

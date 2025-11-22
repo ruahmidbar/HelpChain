@@ -1,0 +1,197 @@
+import React, { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { HandHeart, Users, TrendingUp, MessageCircle, Calendar, Star } from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function Landing() {
+  const navigate = useNavigate();
+
+  const features = [
+    {
+      icon: Users,
+      title: "חיבור בין תלמידים",
+      description: "מערכת חכמה שמחברת בין תלמידים המבקשים עזרה לבין תלמידים המוכנים לעזור"
+    },
+    {
+      icon: TrendingUp,
+      title: "מערכת נקודות ודרגות",
+      description: "צברו נקודות על כל עזרה שתיתנו והתקדמו בדרגות - מהלפר ועד לאלוף!"
+    },
+    {
+      icon: MessageCircle,
+      title: "תקשורת קלה",
+      description: "מערכת הודעות פנימית שמאפשרת תקשורת נוחה ומהירה בין התלמידים"
+    },
+    {
+      icon: Calendar,
+      title: "ניהול יומן חכם",
+      description: "תזמון פגישות אוטומטי ויומן אישי שעוזר לכם לנהל את כל המפגשים"
+    }
+  ];
+
+  const handleSignup = () => {
+    base44.auth.redirectToLogin(createPageUrl("Register"));
+  };
+
+  const handleLogin = async () => {
+    const isAuth = await base44.auth.isAuthenticated();
+    if (isAuth) {
+      try {
+        const currentUser = await base44.auth.me();
+        if (currentUser.first_name && currentUser.school_id) {
+          navigate(createPageUrl("Dashboard"));
+        } else {
+          navigate(createPageUrl("Register"));
+        }
+      } catch (error) {
+        base44.auth.redirectToLogin(createPageUrl("Register"));
+      }
+    } else {
+      base44.auth.redirectToLogin(createPageUrl("Register"));
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50" dir="rtl">
+      <div className="container mx-auto px-4 py-6 md:py-10">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          className="text-center mb-8"
+        >
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+              className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-3xl flex items-center justify-center shadow-2xl"
+            >
+              <HandHeart className="w-8 h-8 text-white" />
+            </motion.div>
+          </div>
+          
+          <h1 className="text-3xl md:text-5xl font-bold mb-3 bg-gradient-to-l from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent leading-tight">
+            HelpChain
+          </h1>
+          
+          <p className="text-base md:text-lg text-gray-700 mb-2 max-w-2xl mx-auto">
+            הפלטפורמה שמחברת תלמידים לעזרה הדדית בלימודים
+          </p>
+          
+          <p className="text-sm text-gray-600 mb-6 max-w-xl mx-auto">
+            יחד אנחנו יותר חזקים! הצטרפו לקהילה של תלמידים שעוזרים אחד לשני,
+            משתפים ידע ומצליחים ביחד.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+            <Button
+              size="md"
+              className="bg-gradient-to-l from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 py-4 text-base rounded-xl shadow-xl hover:shadow-2xl transition-all duration-300"
+              onClick={handleSignup}
+            >
+              הרשמה לאפליקציה
+            </Button>
+            <Button
+              size="md"
+              variant="outline"
+              className="px-6 py-4 text-base rounded-xl border-2 border-purple-300 hover:bg-purple-50 transition-all duration-300"
+              onClick={handleLogin}
+            >
+              יש לי כבר חשבון
+            </Button>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.8 }}
+          className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
+        >
+          {features.map((feature, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 + index * 0.1 }}
+            >
+              <Card className="p-4 h-full bg-white/80 backdrop-blur-sm border-purple-200 hover:shadow-lg transition-all duration-300">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-purple-100 rounded-xl flex items-center justify-center mb-2">
+                  <feature.icon className="w-5 h-5 text-purple-600" />
+                </div>
+                <h3 className="text-base font-bold mb-2 text-gray-900">{feature.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed">{feature.description}</p>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8, duration: 0.8 }}
+          className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-purple-200"
+        >
+          <h2 className="text-xl md:text-2xl font-bold text-center mb-6 bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            איך זה עובד?
+          </h2>
+          
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-lg font-bold shadow-lg">
+                1
+              </div>
+              <h3 className="text-base font-bold mb-2">הירשמו לפלטפורמה</h3>
+              <p className="text-sm text-gray-600">
+                צרו חשבון עם פרטי בית הספר והכיתה שלכם
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-lg font-bold shadow-lg">
+                2
+              </div>
+              <h3 className="text-base font-bold mb-2">בחרו פעולה</h3>
+              <p className="text-sm text-gray-600">
+                בקשו עזרה בנושא שאתם צריכים או הציעו לעזור לאחרים
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-orange-500 rounded-full flex items-center justify-center mx-auto mb-3 text-white text-lg font-bold shadow-lg">
+                3
+              </div>
+              <h3 className="text-base font-bold mb-2">התחילו ללמוד!</h3>
+              <p className="text-sm text-gray-600">
+                קבעו פגישה, לכו ללמוד ביחד וצברו נקודות
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.2, duration: 0.8 }}
+          className="text-center mt-8"
+        >
+          <p className="text-lg font-bold text-gray-800 mb-4">
+            מוכנים להצטרף לקהילה? 🚀
+          </p>
+          <Button
+            size="md"
+            className="bg-gradient-to-l from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-4 text-base rounded-xl shadow-xl hover:shadow-2xl transition-all duration-300"
+            onClick={handleSignup}
+          >
+            הרשמה עכשיו - זה בחינם!
+          </Button>
+        </motion.div>
+      </div>
+    </div>
+  );
+}

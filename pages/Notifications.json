@@ -1,0 +1,328 @@
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowRight, Bell, Check, X, Calendar, Clock, MapPin, Trash2, Send } from "lucide-react";
+import { toast } from "sonner";
+
+export default function Notifications() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("received");
+
+  const { data: user } = useQuery({
+    queryKey: ['current-user'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: receivedNotifications = [] } = useQuery({
+    queryKey: ['notifications-received', user?.id],
+    queryFn: () => user ? base44.entities.Notification.filter({ to_user_id: user.id }, '-created_date') : [],
+    enabled: !!user,
+    initialData: [],
+  });
+
+  const { data: sentNotifications = [] } = useQuery({
+    queryKey: ['notifications-sent', user?.id],
+    queryFn: () => user ? base44.entities.Notification.filter({ from_user_id: user.id }, '-created_date') : [],
+    enabled: !!user,
+    initialData: [],
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: subjects = [] } = useQuery({
+    queryKey: ['subjects'],
+    queryFn: () => base44.entities.Subject.list(),
+    initialData: [],
+  });
+
+  const approveNotificationMutation = useMutation({
+    mutationFn: async (notification) => {
+      // עדכון סטטוס ההודעה
+      await base44.entities.Notification.update(notification.id, { status: "מאושר" });
+      
+      // יצירת פגישה
+      await base44.entities.Meeting.create({
+        helper_id: notification.type === "הצעת_עזרה" ? notification.from_user_id : user.id,
+        requester_id: notification.type === "בקשת_עזרה" ? notification.from_user_id : user.id,
+        subject_id: notification.subject_id,
+        date: notification.proposed_date,
+        time: notification.proposed_time,
+        duration: notification.duration,
+        place: notification.place,
+        status: "מאושר"
+      });
+
+      // שליחת מייל עם ארוע iCal
+      const fromUser = users.find(u => u.id === notification.from_user_id);
+      const subject = subjects.find(s => s.id === notification.subject_id);
+      
+      const emailBody = `
+שלום ${user.first_name},
+
+הפגישה שלך אושרה!
+
+פרטי הפגישה:
+${notification.type === "בקשת_עזרה" ? "מבקש עזרה" : "מציע עזרה"}: ${fromUser?.first_name} ${fromUser?.last_name}
+מקצוע: ${subject?.name}
+תאריך: ${new Date(notification.proposed_date).toLocaleDateString('he-IL')}
+שעה: ${notification.proposed_time}
+משך: ${notification.duration} דקות
+מקום: ${notification.place}
+${notification.study_material ? `\nחומר לימוד: ${notification.study_material}` : ''}
+
+בהצלחה!
+צוות HelpChain
+      `;
+
+      await base44.integrations.Core.SendEmail({
+        to: user.email,
+        subject: "פגישת לימוד אושרה - HelpChain",
+        body: emailBody
+      });
+
+      return notification;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['notifications-received']);
+      queryClient.invalidateQueries(['meetings']);
+      toast.success("הפגישה אושרה ונשלחה למייל!");
+    },
+    onError: () => {
+      toast.error("אירעה שגיאה באישור הפגישה");
+    }
+  });
+
+  const rejectNotificationMutation = useMutation({
+    mutationFn: (notificationId) => base44.entities.Notification.update(notificationId, { status: "נדחה" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['notifications-received']);
+      toast.success("ההודעה נדחתה");
+    },
+  });
+
+  const deleteNotificationMutation = useMutation({
+    mutationFn: (notificationId) => base44.entities.Notification.delete(notificationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['notifications-received']);
+      queryClient.invalidateQueries(['notifications-sent']);
+      toast.success("ההודעה נמחקה");
+    },
+  });
+
+  const getUserName = (userId) => {
+    const user = users.find(u => u.id === userId);
+    return user && user.first_name && user.last_name 
+      ? `${user.first_name} ${user.last_name}` 
+      : user?.full_name || user?.email || "משתמש לא ידוע";
+  };
+
+  const getSubjectName = (subjectId) => {
+    return subjects.find(s => s.id === subjectId)?.name || "מקצוע לא ידוע";
+  };
+
+  const pendingReceivedNotifications = receivedNotifications.filter(n => n.status === "ממתין");
+
+  return (
+    <div className="min-h-screen p-6 md:p-10" dir="rtl">
+      <div className="max-w-5xl mx-auto">
+        <div className="sticky top-0 z-20 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 pb-4 pt-2">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(createPageUrl("Dashboard"))}
+            className="bg-white shadow-md"
+          >
+            <ArrowRight className="w-4 h-4 ml-2" />
+            חזור לדף הבית
+          </Button>
+        </div>
+
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+            הודעות
+          </h1>
+          <p className="text-gray-600 text-lg">בקשות והצעות לפגישות לימוד</p>
+        </div>
+
+        <Tabs defaultValue="received" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 bg-white/90 p-1 rounded-xl shadow-md">
+            <TabsTrigger value="received">
+              <Bell className="w-4 h-4 ml-2" />
+              הודעות שהתקבלו
+              {pendingReceivedNotifications.length > 0 && (
+                <Badge className="mr-2 bg-red-500">{pendingReceivedNotifications.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="sent">
+              <Send className="w-4 h-4 ml-2" />
+              הודעות שנשלחו
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="received">
+            {pendingReceivedNotifications.length === 0 ? (
+          <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+            <CardContent className="p-12 text-center">
+              <Bell className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500 text-lg mb-2">אין הודעות חדשות</p>
+              <p className="text-gray-400">כשתקבל בקשות או הצעות לפגישות, הן יופיעו כאן</p>
+            </CardContent>
+          </Card>
+            ) : (
+              <div className="space-y-4">
+                {pendingReceivedNotifications.map((notification) => (
+              <Card key={notification.id} className="bg-white/90 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <CardTitle className="text-xl mb-2">
+                        {getUserName(notification.from_user_id)}
+                      </CardTitle>
+                      <Badge className={notification.type === "בקשת_עזרה" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800"}>
+                        {notification.type === "בקשת_עזרה" ? "מבקש עזרה" : "מציע עזרה"}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold">מקצוע:</span>
+                      <Badge variant="outline">{getSubjectName(notification.subject_id)}</Badge>
+                    </div>
+                    {notification.study_material && (
+                      <div className="md:col-span-2">
+                        <span className="font-bold">חומר לימוד:</span>
+                        <p className="text-gray-700 mt-1">{notification.study_material}</p>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-gray-500" />
+                      <span>{new Date(notification.proposed_date).toLocaleDateString('he-IL')}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-gray-500" />
+                      <span>{notification.proposed_time} ({notification.duration} דקות)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-gray-500" />
+                      <span>{notification.place}</span>
+                    </div>
+                  </div>
+                  
+                  {notification.message && (
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <p className="text-sm text-gray-700">{notification.message}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-4 border-t">
+                    <Button
+                      className="flex-1 bg-green-600 hover:bg-green-700"
+                      onClick={() => approveNotificationMutation.mutate(notification)}
+                      disabled={approveNotificationMutation.isLoading}
+                    >
+                      <Check className="w-4 h-4 ml-2" />
+                      אשר פגישה
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                      onClick={() => rejectNotificationMutation.mutate(notification.id)}
+                    >
+                      <X className="w-4 h-4 ml-2" />
+                      דחה
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="sent">
+            {sentNotifications.length === 0 ? (
+              <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+                <CardContent className="p-12 text-center">
+                  <Send className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg mb-2">לא נשלחו הודעות</p>
+                  <p className="text-gray-400">הודעות שתשלח יופיעו כאן</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {sentNotifications.map((notification) => (
+                  <Card key={notification.id} className="bg-white/90 backdrop-blur-sm shadow-lg">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <CardTitle className="text-xl mb-2">
+                            נשלח ל: {getUserName(notification.to_user_id)}
+                          </CardTitle>
+                          <div className="flex gap-2">
+                            <Badge className={notification.type === "בקשת_עזרה" ? "bg-orange-100 text-orange-800" : "bg-green-100 text-green-800"}>
+                              {notification.type === "בקשת_עזרה" ? "בקשת עזרה" : "הצעת עזרה"}
+                            </Badge>
+                            <Badge className={
+                              notification.status === "ממתין" ? "bg-yellow-100 text-yellow-800" :
+                              notification.status === "מאושר" ? "bg-green-100 text-green-800" :
+                              "bg-red-100 text-red-800"
+                            }>
+                              {notification.status}
+                            </Badge>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteNotificationMutation.mutate(notification.id)}
+                          className="text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid md:grid-cols-2 gap-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold">מקצוע:</span>
+                          <Badge variant="outline">{getSubjectName(notification.subject_id)}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-gray-500" />
+                          <span>{new Date(notification.proposed_date).toLocaleDateString('he-IL')}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-gray-500" />
+                          <span>{notification.proposed_time} ({notification.duration} דקות)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-gray-500" />
+                          <span>{notification.place}</span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        נשלח ב: {new Date(notification.created_date).toLocaleString('he-IL')}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}

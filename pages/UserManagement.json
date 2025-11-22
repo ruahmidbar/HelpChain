@@ -1,0 +1,382 @@
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowRight, Trash2, Ban, CheckCircle } from "lucide-react";
+import { toast } from "sonner";
+
+export default function UserManagement() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCity, setFilterCity] = useState("all");
+  const [filterSchool, setFilterSchool] = useState("all");
+  const [filterGrade, setFilterGrade] = useState("all");
+  const [blockingUser, setBlockingUser] = useState(null);
+  const [blockDuration, setBlockDuration] = useState("permanent");
+  const [blockReason, setBlockReason] = useState("");
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const user = await base44.auth.me();
+      setCurrentUser(user);
+      if (user.role !== 'admin') {
+        toast.error("אין לך הרשאה לגשת לעמוד זה");
+        navigate(createPageUrl("Dashboard"));
+      }
+    };
+    fetchUser();
+  }, [navigate]);
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: schools = [] } = useQuery({
+    queryKey: ['schools'],
+    queryFn: () => base44.entities.School.list(),
+    initialData: [],
+  });
+
+  const { data: grades = [] } = useQuery({
+    queryKey: ['grades'],
+    queryFn: () => base44.entities.Grade.list(),
+    initialData: [],
+  });
+
+  const updateUserRoleMutation = useMutation({
+    mutationFn: ({ userId, newRole }) => base44.entities.User.update(userId, { role: newRole }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['users']);
+      toast.success("תפקיד המשתמש עודכן בהצלחה");
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.delete(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['users']);
+      toast.success("המשתמש נמחק בהצלחה");
+    },
+  });
+
+  const blockUserMutation = useMutation({
+    mutationFn: ({ userId, duration, reason }) => {
+      const blockUntil = duration === "permanent" 
+        ? null 
+        : new Date(Date.now() + parseInt(duration) * 24 * 60 * 60 * 1000).toISOString();
+      
+      return base44.entities.User.update(userId, {
+        is_blocked: true,
+        block_until: blockUntil,
+        block_reason: reason
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['users']);
+      toast.success("המשתמש נחסם בהצלחה");
+      setBlockingUser(null);
+      setBlockReason("");
+    },
+  });
+
+  const unblockUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, {
+      is_blocked: false,
+      block_until: null,
+      block_reason: null
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['users']);
+      toast.success("החסימה הוסרה בהצלחה");
+    },
+  });
+
+  const getUserName = (userId) => {
+    const u = users.find(user => user.id === userId);
+    return u && u.first_name && u.last_name 
+      ? `${u.first_name} ${u.last_name}` 
+      : u?.email || "לא ידוע";
+  };
+
+  const filteredUsers = users.filter(u => {
+    const matchesSearch = searchTerm === "" || 
+      getUserName(u.id).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = filterStatus === "all" || 
+      (filterStatus === "blocked" && u.is_blocked) ||
+      (filterStatus === "active" && !u.is_blocked);
+    
+    const matchesCity = filterCity === "all" || u.city === filterCity;
+    const matchesSchool = filterSchool === "all" || u.school_id === filterSchool;
+    const matchesGrade = filterGrade === "all" || u.grade_id === filterGrade;
+    
+    return matchesSearch && matchesStatus && matchesCity && matchesSchool && matchesGrade;
+  });
+
+  const cities = [...new Set(users.map(u => u.city).filter(Boolean))];
+  const filteredSchools = filterCity !== "all" 
+    ? schools.filter(s => s.city === filterCity)
+    : schools;
+  const filteredGrades = filterSchool !== "all"
+    ? grades.filter(g => g.school_id === filterSchool)
+    : grades;
+
+  if (!currentUser || currentUser.role !== 'admin') {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen p-6 md:p-10" dir="rtl">
+      <div className="max-w-7xl mx-auto">
+        <div className="sticky top-0 z-20 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 pb-4 pt-2">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(createPageUrl("Dashboard"))}
+            className="bg-white shadow-md"
+          >
+            <ArrowRight className="w-4 h-4 ml-2" />
+            חזור לדף הבית
+          </Button>
+        </div>
+
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+            ניהול משתמשים
+          </h1>
+          <p className="text-gray-600 text-lg">ניהול הרשאות וחסימת משתמשים</p>
+        </div>
+
+        <Tabs defaultValue="roles" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 bg-white/90 p-1 rounded-xl shadow-md">
+            <TabsTrigger value="roles">הרשאות משתמשים</TabsTrigger>
+            <TabsTrigger value="blocked">משתמשים חסומים</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="roles">
+            <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+              <CardHeader>
+                <CardTitle>ניהול הרשאות משתמשים</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {users.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium">{getUserName(u.id)}</p>
+                        <p className="text-sm text-gray-500">{u.email}</p>
+                      </div>
+                      <div className="flex gap-3 items-center">
+                        <Select
+                          value={u.user_role || "תלמיד"}
+                          onValueChange={(newRole) => base44.entities.User.update(u.id, { user_role: newRole }).then(() => {
+                            queryClient.invalidateQueries(['users']);
+                            toast.success("הרשאה עודכנה");
+                          })}
+                        >
+                          <SelectTrigger className="w-40">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="תלמיד">תלמיד</SelectItem>
+                            <SelectItem value="צוות ביה&quot;ס">צוות ביה"ס</SelectItem>
+                            <SelectItem value="אדמין">אדמין</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {u.id !== currentUser?.id && (
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            onClick={() => {
+                              if (confirm(`האם אתה בטוח שברצונך למחוק את ${getUserName(u.id)}?`)) {
+                                deleteUserMutation.mutate(u.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="blocked">
+            <div className="mb-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <Input
+                  placeholder="חפש משתמש..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="סטטוס" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">כל הסטטוסים</SelectItem>
+                    <SelectItem value="active">פעילים</SelectItem>
+                    <SelectItem value="blocked">חסומים</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={filterCity} onValueChange={(val) => {
+                  setFilterCity(val);
+                  setFilterSchool("all");
+                  setFilterGrade("all");
+                }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="עיר" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">כל הערים</SelectItem>
+                    {cities.map(city => (
+                      <SelectItem key={city} value={city}>{city}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterSchool} onValueChange={(val) => {
+                  setFilterSchool(val);
+                  setFilterGrade("all");
+                }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="בית ספר" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">כל בתי הספר</SelectItem>
+                    {filteredSchools.map(school => (
+                      <SelectItem key={school.id} value={school.id}>{school.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-3 items-center">
+                <Select value={filterGrade} onValueChange={setFilterGrade}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="כיתה" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">כל הכיתות</SelectItem>
+                    {filteredGrades.map(grade => (
+                      <SelectItem key={grade.id} value={grade.id}>{grade.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-gray-600">
+                  נמצאו {filteredUsers.length} משתמשים
+                </p>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              {filteredUsers.map((u) => (
+                <Card key={u.id} className={`${u.is_blocked ? 'bg-red-50' : 'bg-white'}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="font-medium">{getUserName(u.id)}</p>
+                        <p className="text-sm text-gray-500">{u.email}</p>
+                        {u.city && <p className="text-xs text-gray-400">📍 {u.city}</p>}
+                      </div>
+                      {u.is_blocked ? (
+                        <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">חסום</span>
+                      ) : (
+                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">פעיל</span>
+                      )}
+                    </div>
+                    {u.is_blocked && u.block_reason && (
+                      <p className="text-sm text-gray-600 mb-3">
+                        <strong>סיבה:</strong> {u.block_reason}
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      {u.is_blocked ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => unblockUserMutation.mutate(u.id)}
+                          className="flex-1 border-green-500 text-green-600 hover:bg-green-50"
+                        >
+                          <CheckCircle className="w-4 h-4 ml-2" />
+                          הסר חסימה
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setBlockingUser(u)}
+                          className="flex-1 border-red-500 text-red-600 hover:bg-red-50"
+                        >
+                          <Ban className="w-4 h-4 ml-2" />
+                          חסום משתמש
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        <Dialog open={!!blockingUser} onOpenChange={() => setBlockingUser(null)}>
+          <DialogContent dir="rtl">
+            <DialogHeader>
+              <DialogTitle>חסימת משתמש</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>משך החסימה</Label>
+                <Select value={blockDuration} onValueChange={setBlockDuration}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">יום אחד</SelectItem>
+                    <SelectItem value="7">שבוע</SelectItem>
+                    <SelectItem value="30">חודש</SelectItem>
+                    <SelectItem value="permanent">לצמיתות</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>סיבת החסימה</Label>
+                <Textarea
+                  value={blockReason}
+                  onChange={(e) => setBlockReason(e.target.value)}
+                  placeholder="הזן סיבה..."
+                  className="mt-2"
+                />
+              </div>
+              <Button
+                onClick={() => blockUserMutation.mutate({
+                  userId: blockingUser?.id,
+                  duration: blockDuration,
+                  reason: blockReason
+                })}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                אשר חסימה
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+  );
+}

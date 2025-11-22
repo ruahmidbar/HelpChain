@@ -1,0 +1,537 @@
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowRight, Trash2, Ban, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+
+export default function AdminContent() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [newSchool, setNewSchool] = useState({ name: "", city: "" });
+  const [newGrade, setNewGrade] = useState({ name: "", school_id: "" });
+  const [newSubject, setNewSubject] = useState({ name: "", category: "" });
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCity, setFilterCity] = useState("all");
+  const [filterSchool, setFilterSchool] = useState("all");
+  const [filterGrade, setFilterGrade] = useState("all");
+  const [blockingUser, setBlockingUser] = useState(null);
+  const [blockDuration, setBlockDuration] = useState("permanent");
+  const [blockReason, setBlockReason] = useState("");
+
+  const { data: user } = useQuery({
+    queryKey: ['current-user'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: helpRequests = [] } = useQuery({
+    queryKey: ['all-help-requests'],
+    queryFn: () => base44.entities.HelpRequest.list('-created_date'),
+    initialData: [],
+  });
+
+  const { data: helpOffers = [] } = useQuery({
+    queryKey: ['all-help-offers'],
+    queryFn: () => base44.entities.HelpOffer.list('-created_date'),
+    initialData: [],
+  });
+
+  const { data: messages = [] } = useQuery({
+    queryKey: ['all-messages-admin'],
+    queryFn: () => base44.entities.Message.list('-created_date'),
+    initialData: [],
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['all-users'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: subjects = [] } = useQuery({
+    queryKey: ['subjects'],
+    queryFn: () => base44.entities.Subject.list(),
+    initialData: [],
+  });
+
+  const { data: schools = [] } = useQuery({
+    queryKey: ['schools'],
+    queryFn: () => base44.entities.School.list(),
+    initialData: [],
+  });
+
+  const { data: grades = [] } = useQuery({
+    queryKey: ['grades'],
+    queryFn: () => base44.entities.Grade.list(),
+    initialData: [],
+  });
+
+  const createSchoolMutation = useMutation({
+    mutationFn: (data) => base44.entities.School.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['schools']);
+      toast.success("בית הספר נוצר בהצלחה");
+      setNewSchool({ name: "", city: "" });
+    },
+  });
+
+  const deleteSchoolMutation = useMutation({
+    mutationFn: (id) => base44.entities.School.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['schools']);
+      toast.success("בית הספר נמחק בהצלחה");
+    },
+  });
+
+  const createGradeMutation = useMutation({
+    mutationFn: (data) => base44.entities.Grade.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['grades']);
+      toast.success("הכיתה נוצרה בהצלחה");
+      setNewGrade({ name: "", school_id: "" });
+    },
+  });
+
+  const deleteGradeMutation = useMutation({
+    mutationFn: (id) => base44.entities.Grade.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['grades']);
+      toast.success("הכיתה נמחקה בהצלחה");
+    },
+  });
+
+  const createSubjectMutation = useMutation({
+    mutationFn: (data) => base44.entities.Subject.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['subjects']);
+      toast.success("המקצוע נוצר בהצלחה");
+      setNewSubject({ name: "", category: "" });
+    },
+  });
+
+  const deleteSubjectMutation = useMutation({
+    mutationFn: (id) => base44.entities.Subject.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['subjects']);
+      toast.success("המקצוע נמחק בהצלחה");
+    },
+  });
+
+  const deleteRequestMutation = useMutation({
+    mutationFn: (id) => base44.entities.HelpRequest.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['all-help-requests']);
+      toast.success("הבקשה נמחקה");
+    },
+  });
+
+  const deleteOfferMutation = useMutation({
+    mutationFn: (id) => base44.entities.HelpOffer.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['all-help-offers']);
+      toast.success("ההצעה נמחקה");
+    },
+  });
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: (id) => base44.entities.Message.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['all-messages-admin']);
+      toast.success("ההודעה נמחקה");
+    },
+  });
+
+  const blockUserMutation = useMutation({
+    mutationFn: async ({ userId, duration, reason }) => {
+      const blockData = {
+        is_blocked: true,
+        block_reason: reason
+      };
+      
+      if (duration !== "permanent") {
+        const days = parseInt(duration);
+        const blockUntil = new Date();
+        blockUntil.setDate(blockUntil.getDate() + days);
+        blockData.block_until = blockUntil.toISOString();
+      }
+      
+      await base44.entities.User.update(userId, blockData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['all-users']);
+      toast.success("המשתמש נחסם");
+      setBlockingUser(null);
+      setBlockReason("");
+    },
+  });
+
+  const unblockUserMutation = useMutation({
+    mutationFn: (userId) => base44.entities.User.update(userId, { 
+      is_blocked: false, 
+      block_until: null,
+      block_reason: null
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['all-users']);
+      toast.success("החסימה הוסרה");
+    },
+  });
+
+  const getUserName = (userId) => {
+    const u = users.find(user => user.id === userId);
+    return u && u.first_name && u.last_name 
+      ? `${u.first_name} ${u.last_name}` 
+      : u?.email || "לא ידוע";
+  };
+
+  const filteredUsers = users.filter(u => {
+    const matchesSearch = searchTerm === "" || 
+      getUserName(u.id).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = filterStatus === "all" || 
+      (filterStatus === "blocked" && u.is_blocked) ||
+      (filterStatus === "active" && !u.is_blocked);
+    
+    const matchesCity = filterCity === "all" || u.city === filterCity;
+    const matchesSchool = filterSchool === "all" || u.school_id === filterSchool;
+    const matchesGrade = filterGrade === "all" || u.grade_id === filterGrade;
+    
+    return matchesSearch && matchesStatus && matchesCity && matchesSchool && matchesGrade;
+  });
+
+  const cities = [...new Set(users.map(u => u.city).filter(Boolean))];
+  const filteredSchools = filterCity !== "all" 
+    ? schools.filter(s => s.city === filterCity)
+    : schools;
+  const filteredGrades = filterSchool !== "all"
+    ? grades.filter(g => g.school_id === filterSchool)
+    : grades;
+
+  if (user?.role !== 'admin') {
+    return (
+      <div className="min-h-screen p-10 flex items-center justify-center" dir="rtl">
+        <Card>
+          <CardContent className="p-12 text-center">
+            <h2 className="text-2xl font-bold mb-4">גישה נדחתה</h2>
+            <p className="text-gray-600 mb-6">רק מנהלים יכולים לגשת לדף זה</p>
+            <Button onClick={() => navigate(createPageUrl("Dashboard"))}>
+              חזור לדף הבית
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen p-6 md:p-10" dir="rtl">
+      <div className="max-w-7xl mx-auto">
+        <div className="sticky top-0 z-20 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 pb-4 pt-2">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(createPageUrl("Dashboard"))}
+            className="bg-white shadow-md"
+          >
+            <ArrowRight className="w-4 h-4 ml-2" />
+            חזור לדף הבית
+          </Button>
+        </div>
+
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+            ניהול תוכן
+          </h1>
+          <p className="text-gray-600 text-lg">ניהול מקצועות, בתי ספר, כיתות ותכנים</p>
+        </div>
+
+        <Tabs defaultValue="schools" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-5 bg-white/90 p-1 rounded-xl shadow-md">
+            <TabsTrigger value="schools">בתי ספר</TabsTrigger>
+            <TabsTrigger value="grades">כיתות</TabsTrigger>
+            <TabsTrigger value="subjects">מקצועות</TabsTrigger>
+            <TabsTrigger value="requests">בקשות</TabsTrigger>
+            <TabsTrigger value="offers">הצעות</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="schools">
+            <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+              <CardHeader>
+                <CardTitle>ניהול בתי ספר</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-6 grid grid-cols-2 gap-4">
+                  <Input
+                    placeholder="שם בית הספר"
+                    value={newSchool.name}
+                    onChange={(e) => setNewSchool({...newSchool, name: e.target.value})}
+                  />
+                  <Input
+                    placeholder="עיר"
+                    value={newSchool.city}
+                    onChange={(e) => setNewSchool({...newSchool, city: e.target.value})}
+                  />
+                  <Button
+                    onClick={() => createSchoolMutation.mutate(newSchool)}
+                    disabled={!newSchool.name || !newSchool.city}
+                    className="col-span-2"
+                  >
+                    הוסף בית ספר
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {schools.map((school) => (
+                    <div key={school.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium">{school.name}</p>
+                        <p className="text-sm text-gray-500">{school.city}</p>
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => deleteSchoolMutation.mutate(school.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="grades">
+            <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+              <CardHeader>
+                <CardTitle>ניהול כיתות</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-6 grid grid-cols-2 gap-4">
+                  <Input
+                    placeholder="שם הכיתה"
+                    value={newGrade.name}
+                    onChange={(e) => setNewGrade({...newGrade, name: e.target.value})}
+                  />
+                  <Select
+                    value={newGrade.school_id}
+                    onValueChange={(val) => setNewGrade({...newGrade, school_id: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="בחר בית ספר" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {schools.map(school => (
+                        <SelectItem key={school.id} value={school.id}>{school.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => createGradeMutation.mutate(newGrade)}
+                    disabled={!newGrade.name || !newGrade.school_id}
+                    className="col-span-2"
+                  >
+                    הוסף כיתה
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {grades.map((grade) => (
+                    <div key={grade.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium">{grade.name}</p>
+                        <p className="text-sm text-gray-500">
+                          {schools.find(s => s.id === grade.school_id)?.name}
+                        </p>
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => deleteGradeMutation.mutate(grade.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="subjects">
+            <Card className="bg-white/90 backdrop-blur-sm shadow-xl">
+              <CardHeader>
+                <CardTitle>ניהול מקצועות</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-6 grid grid-cols-2 gap-4">
+                  <Input
+                    placeholder="שם המקצוע"
+                    value={newSubject.name}
+                    onChange={(e) => setNewSubject({...newSubject, name: e.target.value})}
+                  />
+                  <Select
+                    value={newSubject.category}
+                    onValueChange={(val) => setNewSubject({...newSubject, category: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="קטגוריה" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="מדעים">מדעים</SelectItem>
+                      <SelectItem value="שפות">שפות</SelectItem>
+                      <SelectItem value="מדעי החברה">מדעי החברה</SelectItem>
+                      <SelectItem value="אומנויות">אומנויות</SelectItem>
+                      <SelectItem value="אחר">אחר</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => createSubjectMutation.mutate(newSubject)}
+                    disabled={!newSubject.name}
+                    className="col-span-2"
+                  >
+                    הוסף מקצוע
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {subjects.map((subject) => (
+                    <div key={subject.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium">{subject.name}</p>
+                        {subject.category && (
+                          <p className="text-sm text-gray-500">{subject.category}</p>
+                        )}
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => deleteSubjectMutation.mutate(subject.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="requests">
+            <div className="grid md:grid-cols-2 gap-4">
+              {helpRequests.map((req) => (
+                <Card key={req.id} className="bg-white/90">
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-bold">{getUserName(req.requester_id)}</p>
+                        <p className="text-sm text-gray-600">
+                          {req.subjects?.map(sid => subjects.find(s => s.id === sid)?.name).join(", ")}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteRequestMutation.mutate(req.id)}
+                        className="text-red-500 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    {req.study_material && (
+                      <p className="text-xs text-gray-500 mt-2">{req.study_material}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="offers">
+            <div className="grid md:grid-cols-2 gap-4">
+              {helpOffers.map((offer) => (
+                <Card key={offer.id} className="bg-white/90">
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-bold">{getUserName(offer.helper_id)}</p>
+                        <p className="text-sm text-gray-600">
+                          {offer.subjects?.map(sid => subjects.find(s => s.id === sid)?.name).join(", ")}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteOfferMutation.mutate(offer.id)}
+                        className="text-red-500 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    {offer.study_material && (
+                      <p className="text-xs text-gray-500 mt-2">{offer.study_material}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {blockingUser && (
+          <Dialog open={!!blockingUser} onOpenChange={() => setBlockingUser(null)}>
+            <DialogContent dir="rtl">
+              <DialogHeader>
+                <DialogTitle>חסום משתמש</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p>חסימת: {getUserName(blockingUser.id)}</p>
+                <div>
+                  <Label>משך החסימה</Label>
+                  <Select value={blockDuration} onValueChange={setBlockDuration}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">יום אחד</SelectItem>
+                      <SelectItem value="7">שבוע</SelectItem>
+                      <SelectItem value="30">חודש</SelectItem>
+                      <SelectItem value="permanent">קבוע</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>סיבת החסימה</Label>
+                  <Input
+                    value={blockReason}
+                    onChange={(e) => setBlockReason(e.target.value)}
+                    placeholder="הכנס סיבה..."
+                    className="mt-2"
+                  />
+                </div>
+                <Button
+                  onClick={() => blockUserMutation.mutate({ 
+                    userId: blockingUser.id, 
+                    duration: blockDuration,
+                    reason: blockReason
+                  })}
+                  className="w-full bg-red-600 hover:bg-red-700"
+                  disabled={!blockReason}
+                >
+                  חסום משתמש
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+    </div>
+  );
+}
