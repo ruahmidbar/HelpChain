@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { getAuth, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 import { firebaseApp } from "../firebase/firebase";
 import { 
   Home, 
@@ -13,7 +13,7 @@ import {
   Users,
   ShieldAlert,
   BarChart3,
-  Bell
+  X
 } from "lucide-react";
 import Button from "../Components/ui/button"; 
 import Badge from "../Components/ui/badge";   
@@ -29,17 +29,13 @@ export default function Layout() {
   const [userRole, setUserRole] = useState("student");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // נתונים זמניים - בהמשך נחבר למסד הנתונים
-  const notificationsCount = 0; 
-  const unreadChatCount = 0;
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        navigate("/"); 
-      } else {
+      if (firebaseUser) {
         try {
+          // 1. טעינת פרטי משתמש
           const userDocRef = doc(db, "users", firebaseUser.uid);
           const userDoc = await getDoc(userDocRef);
           
@@ -48,7 +44,8 @@ export default function Layout() {
             setUser(userData);
             setUserRole(userData.role || "student");
           } else {
-            setUser({ 
+             // Fallback למקרה שאין מסמך ב-Firestore
+             setUser({ 
                 first_name: firebaseUser.displayName?.split(" ")[0] || "אורח",
                 last_name: "",
                 email: firebaseUser.email,
@@ -56,11 +53,27 @@ export default function Layout() {
                 points: 0
             });
           }
+
+          // 2. האזנה להודעות שלא נקראו (עבור הבאדג' בצ'אט)
+          const q = query(
+            collection(db, "messages"),
+            where("to_user_id", "==", firebaseUser.uid),
+            where("is_read", "==", false)
+          );
+
+          const unsubscribeMessages = onSnapshot(q, (snapshot) => {
+            setUnreadChatCount(snapshot.size);
+          });
+
         } catch (error) {
-          console.error("Error fetching user data:", error);
+          console.error("Layout Error:", error);
         }
-        setLoading(false);
+      } else {
+        navigate("/"); 
       }
+      
+      // תמיד לסיים טעינה!
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -71,30 +84,16 @@ export default function Layout() {
     navigate("/");
   };
 
-  // --- תיקון התפריט לפי הבקשה ---
+  // --- התפריט המעודכן: רק צ'אט, בלי "הודעות" ---
   const navigationItems = [
+    { title: "דף הבית", url: "/dashboard", icon: Home },
     { 
-      title: "דף הבית", 
-      url: "/dashboard", 
-      icon: Home 
-    },
-    { 
-      title: "הודעות", // הכוונה להתראות מערכת (בקשות/אישורים)
-      url: "/notifications", // מוביל לקובץ Notifications.jsx
-      icon: Bell, 
-      badge: notificationsCount 
-    },
-    { 
-      title: "צ'אט", // הכוונה לשיחות חופשיות
-      url: "/chat", // מוביל לקובץ Chat.jsx
+      title: "צ'אט", 
+      url: "/chat", 
       icon: MessageCircle, 
       badge: unreadChatCount 
     },
-    { 
-      title: "היומן שלי", 
-      url: "/calendar", 
-      icon: Calendar 
-    },
+    { title: "היומן שלי", url: "/calendar", icon: Calendar },
   ];
 
   if (userRole === 'admin' || userRole === 'school_admin') {
@@ -112,7 +111,7 @@ export default function Layout() {
     }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center">טוען נתונים...</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center">טוען...</div>;
 
   const roleInfo = getRoleBadge(userRole);
 
@@ -160,7 +159,6 @@ export default function Layout() {
                 ) : (
                   <p className="text-xs text-gray-500">ביחד נצליח!</p>
                 )}
-                
               </div>
             </div>
           </div>
@@ -173,7 +171,7 @@ export default function Layout() {
               to={item.url}
               onClick={() => setIsSidebarOpen(false)}
               className={`
-                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 relative
                 ${location.pathname === item.url 
                   ? 'bg-purple-100 text-purple-700 shadow-sm font-bold' 
                   : 'hover:bg-purple-50 text-gray-700'}
@@ -182,7 +180,7 @@ export default function Layout() {
               <item.icon className="w-5 h-5" />
               <span className="flex-1">{item.title}</span>
               {item.badge > 0 && (
-                <Badge className="bg-red-500 text-white hover:bg-red-600">
+                <Badge className="bg-red-500 text-white hover:bg-red-600 shadow-sm rounded-full px-2 py-0.5 text-xs">
                   {item.badge}
                 </Badge>
               )}

@@ -10,14 +10,16 @@ import {
   deleteDoc, 
   updateDoc, 
   doc,
-  getDocs 
+  getDocs,
+  writeBatch 
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { firebaseApp } from "../firebase/firebase";
 import Button from "../Components/ui/button";
 import { Card, CardContent } from "../Components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../Components/ui/tabs";
 import Badge from "../Components/ui/badge";
+import Checkbox from "../Components/ui/checkbox";
 import { 
   ArrowRight, 
   Mail, 
@@ -26,9 +28,11 @@ import {
   CheckCircle, 
   MailOpen, 
   Clock,
-  User
+  Reply,
+  RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
+import MessageDialog from "../Components/MessageDialog"; 
 
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
@@ -38,192 +42,247 @@ export default function Notifications() {
   const [activeTab, setActiveTab] = useState("inbox");
   const [inboxMessages, setInboxMessages] = useState([]);
   const [sentMessages, setSentMessages] = useState([]);
+  const [usersMap, setUsersMap] = useState({});
   const [loading, setLoading] = useState(true);
-  const [usersMap, setUsersMap] = useState({}); // מיפוי שמות משתמשים
+  const [selectedIds, setSelectedIds] = useState([]);
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
+    // שימוש ב-onAuthStateChanged כדי למנוע מצב של "נתקע בטעינה"
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setLoading(false);
+        navigate("/"); // אם אין משתמש, זרוק החוצה
+        return;
+      }
 
-    // טעינת שמות כל המשתמשים (כדי להציג שמות יפים במקום מזהים)
-    const fetchUsers = async () => {
-      const usersSnap = await getDocs(collection(db, "users"));
-      const map = {};
-      usersSnap.docs.forEach(doc => {
-        const d = doc.data();
-        map[doc.id] = `${d.first_name || ""} ${d.last_name || ""}`.trim() || d.email;
-      });
-      setUsersMap(map);
-    };
-    fetchUsers();
+      try {
+        // טעינת שמות משתמשים
+        const usersSnap = await getDocs(collection(db, "users"));
+        const map = {};
+        usersSnap.docs.forEach(doc => {
+          const d = doc.data();
+          map[doc.id] = `${d.first_name || ""} ${d.last_name || ""}`.trim() || d.email;
+        });
+        setUsersMap(map);
 
-    // 1. האזנה להודעות נכנסות (Inbox)
-    // שים לב: אנחנו מאזינים לכל ההודעות שבהן to_user_id הוא אני
-    const qInbox = query(
-      collection(db, "messages"), 
-      where("to_user_id", "==", user.uid)
-      // הערה: הסרתי זמנית את orderBy כדי למנוע קריסה אם אין אינדקס. המיון יעשה בלקוח.
-    );
+        // 1. האזנה להודעות נכנסות
+        const qInbox = query(
+          collection(db, "messages"), 
+          where("to_user_id", "==", user.uid)
+        );
 
-    const unsubInbox = onSnapshot(qInbox, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // מיון ידני לפי תאריך (חדש לישן)
-      msgs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-      setInboxMessages(msgs);
-      setLoading(false);
+        const unsubInbox = onSnapshot(qInbox, (snapshot) => {
+          const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          msgs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          setInboxMessages(msgs);
+          setLoading(false); // סיום טעינה רק אחרי שקיבלנו נתונים
+        }, (error) => {
+          console.error("Inbox Error:", error);
+          setLoading(false); // סיום טעינה גם בשגיאה
+        });
+
+        // 2. האזנה להודעות יוצאות
+        const qSent = query(
+          collection(db, "messages"), 
+          where("from_user_id", "==", user.uid)
+        );
+
+        const unsubSent = onSnapshot(qSent, (snapshot) => {
+          const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          msgs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          setSentMessages(msgs);
+        });
+
+        // שמירת פונקציות הניקוי
+        return () => {
+          unsubInbox();
+          unsubSent();
+        };
+
+      } catch (error) {
+        console.error("Error setup:", error);
+        setLoading(false);
+      }
     });
 
-    // 2. האזנה להודעות יוצאות (Sent)
-    // שים לב: אנחנו מאזינים לכל ההודעות שבהן from_user_id הוא אני
-    const qSent = query(
-      collection(db, "messages"), 
-      where("from_user_id", "==", user.uid)
-    );
+    return () => unsubscribeAuth();
+  }, [navigate]);
 
-    const unsubSent = onSnapshot(qSent, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // מיון ידני
-      msgs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-      setSentMessages(msgs);
+  // --- ניהול בחירה ---
+  useEffect(() => { setSelectedIds([]); }, [activeTab]);
+
+  const handleSelectAll = (checked) => {
+    const currentList = activeTab === "inbox" ? inboxMessages : sentMessages;
+    if (checked) setSelectedIds(currentList.map(m => m.id));
+    else setSelectedIds([]);
+  };
+
+  const handleSelectOne = (id, checked) => {
+    if (checked) setSelectedIds(prev => [...prev, id]);
+    else setSelectedIds(prev => prev.filter(item => item !== id));
+  };
+
+  // --- פעולות ---
+  const performBatchAction = async (actionType) => {
+    if (selectedIds.length === 0) return;
+    const batch = writeBatch(db);
+    let msg = "";
+
+    selectedIds.forEach(id => {
+      const docRef = doc(db, "messages", id);
+      if (actionType === "delete") {
+        batch.delete(docRef);
+        msg = "הודעות נמחקו";
+      } else if (actionType === "markRead") {
+        batch.update(docRef, { is_read: true });
+        msg = "סומן כנקרא";
+      } else if (actionType === "markUnread") {
+        batch.update(docRef, { is_read: false });
+        msg = "סומן כלא נקרא";
+      }
     });
 
-    return () => {
-      unsubInbox();
-      unsubSent();
-    };
-  }, []);
-
-  const handleDelete = async (msgId) => {
-    if(!window.confirm("האם למחוק את ההודעה?")) return;
     try {
-      await deleteDoc(doc(db, "messages", msgId));
-      toast.success("ההודעה נמחקה");
+      await batch.commit();
+      toast.success(msg);
+      setSelectedIds([]);
     } catch (error) {
-      toast.error("שגיאה במחיקה");
+      toast.error("שגיאה בפעולה");
     }
   };
 
-  const handleMarkAsRead = async (msgId, currentStatus) => {
+  const handleDelete = async (msgId) => {
+    if(!window.confirm("למחוק הודעה זו?")) return;
     try {
-      await updateDoc(doc(db, "messages", msgId), { is_read: !currentStatus });
-    } catch (error) {
-      console.error(error);
-    }
+      await deleteDoc(doc(db, "messages", msgId));
+      toast.success("הודעה נמחקה");
+    } catch (error) { toast.error("שגיאה"); }
+  };
+
+  const handleMarkAsRead = async (msgId, currentStatus) => {
+    try { await updateDoc(doc(db, "messages", msgId), { is_read: !currentStatus }); } catch (error) { console.error(error); }
   };
 
   const MessageItem = ({ msg, type }) => {
     const isInbox = type === 'inbox';
-    // חישוב השם להצגה: אם זה נכנס, ממי קיבלתי. אם זה יוצא, למי שלחתי.
     const otherUserId = isInbox ? msg.from_user_id : msg.to_user_id;
-    const otherUserName = usersMap[otherUserId] || "משתמש";
+    const otherUserName = usersMap[otherUserId] || (isInbox ? msg.from_user_name : msg.to_user_name) || "משתמש";
+    const isSelected = selectedIds.includes(msg.id);
 
     return (
-      <Card className={`mb-3 transition-all hover:shadow-md ${!msg.is_read && isInbox ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
-        <CardContent className="p-4 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+      <div className={`
+        flex items-center gap-4 p-3 border-b last:border-0 transition-colors cursor-pointer group
+        ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}
+        ${!msg.is_read && isInbox ? 'bg-white font-bold' : 'bg-gray-50/50 text-gray-600'}
+      `}>
+        <div onClick={(e) => e.stopPropagation()}>
+          <Checkbox checked={isSelected} onCheckedChange={(checked) => handleSelectOne(msg.id, checked)} />
+        </div>
+
+        <div className="text-gray-400">
+          {!msg.is_read && isInbox ? <Mail className="w-5 h-5 text-blue-600 fill-blue-100" /> : <MailOpen className="w-5 h-5" />}
+        </div>
+
+        <div className="w-32 md:w-40 truncate">{otherUserName}</div>
+
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="truncate">{msg.content}</span>
+          {!msg.is_read && isInbox && <Badge className="bg-blue-600 text-[10px] px-1 py-0 h-5">חדש</Badge>}
+        </div>
+
+        <div className="flex items-center gap-4 min-w-[120px] justify-end">
+          <span className="text-xs group-hover:hidden">
+            {msg.created_at ? new Date(msg.created_at).toLocaleDateString('he-IL') : ''}
+          </span>
           
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className={`p-2 rounded-full ${!msg.is_read && isInbox ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
-              {isInbox ? <Mail className="w-5 h-5"/> : <Send className="w-5 h-5"/>}
-            </div>
-            <div className="min-w-0 w-full">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                    <span className="font-bold text-gray-900 truncate">{otherUserName}</span>
-                    {!msg.is_read && isInbox && <Badge className="bg-blue-600 text-xs hover:bg-blue-700">חדש</Badge>}
-                </div>
-                <div className="flex items-center gap-1 text-xs text-gray-400 whitespace-nowrap">
-                    <Clock className="w-3 h-3"/>
-                    {msg.created_at ? new Date(msg.created_at).toLocaleString('he-IL') : ''}
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 line-clamp-2">{msg.content}</p>
-            </div>
+          <div className="hidden group-hover:flex items-center gap-1">
+             {isInbox && (
+               <div onClick={(e) => e.stopPropagation()}>
+                 <MessageDialog 
+                    targetUserId={otherUserId} 
+                    targetUserName={otherUserName} 
+                    label={<Reply className="w-4 h-4"/>} 
+                    variant="ghost"
+                 />
+               </div>
+             )}
+             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(msg.id)}>
+                <Trash2 className="w-4 h-4 text-red-500"/>
+             </Button>
           </div>
-
-          <div className="flex gap-2 self-end md:self-center ml-4">
-            {isInbox && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => handleMarkAsRead(msg.id, msg.is_read)}
-                title={msg.is_read ? "סמן כלא נקרא" : "סמן כנקרא"}
-              >
-                {msg.is_read ? <MailOpen className="w-4 h-4 text-gray-400"/> : <CheckCircle className="w-4 h-4 text-blue-600"/>}
-              </Button>
-            )}
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => handleDelete(msg.id)} 
-              className="text-red-400 hover:text-red-600 hover:bg-red-50"
-              title="מחק"
-            >
-              <Trash2 className="w-4 h-4"/>
-            </Button>
-          </div>
-
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   };
+
+  const currentList = activeTab === "inbox" ? inboxMessages : sentMessages;
+  const isAllSelected = currentList.length > 0 && selectedIds.length === currentList.length;
 
   if (loading) return <div className="p-10 text-center">טוען הודעות...</div>;
 
   return (
     <div className="min-h-screen p-6 md:p-10" dir="rtl">
-      <div className="max-w-5xl mx-auto">
-        
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-l from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
-                תיבת הודעות
-            </h1>
-            <p className="text-gray-600">הודעות רשמיות, בקשות ואישורים</p>
-          </div>
+      <div className="max-w-6xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold text-gray-800">תיבת דואר</h1>
           <Button variant="outline" onClick={() => navigate("/dashboard")}>
-            <ArrowRight className="w-4 h-4 ml-2" /> חזור
+            <ArrowRight className="w-4 h-4 ml-2" /> חזור לדשבורד
           </Button>
         </div>
 
-        <Tabs defaultValue="inbox" value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2 bg-white p-1 rounded-xl shadow border">
-            <TabsTrigger value="inbox">
-                <Mail className="w-4 h-4 ml-2"/> 
-                דואר נכנס
-                {inboxMessages.filter(m => !m.is_read).length > 0 && (
-                    <Badge className="mr-2 bg-red-500 hover:bg-red-600">
-                        {inboxMessages.filter(m => !m.is_read).length}
-                    </Badge>
-                )}
-            </TabsTrigger>
-            <TabsTrigger value="sent">
-                <Send className="w-4 h-4 ml-2"/> נשלחו
-            </TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="inbox" value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <div className="bg-white border rounded-t-xl p-2 flex justify-between items-center shadow-sm sticky top-4 z-10">
+            <div className="flex items-center gap-3">
+               <div className="flex items-center gap-2 px-3 border-l pl-4">
+                 <Checkbox checked={isAllSelected} onCheckedChange={handleSelectAll} />
+                 <span className="text-sm text-gray-500 hidden md:inline">בחר הכל</span>
+               </div>
+               {selectedIds.length > 0 ? (
+                 <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2">
+                    <Button variant="ghost" size="sm" onClick={() => performBatchAction("delete")} title="מחק">
+                        <Trash2 className="w-4 h-4 text-red-600"/> <span className="mr-2 hidden md:inline">({selectedIds.length})</span>
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => performBatchAction("markRead")} title="סמן כנקרא"><MailOpen className="w-4 h-4"/></Button>
+                    <Button variant="ghost" size="sm" onClick={() => performBatchAction("markUnread")} title="סמן כלא נקרא"><Mail className="w-4 h-4"/></Button>
+                 </div>
+               ) : (
+                 <Button variant="ghost" size="sm" onClick={() => window.location.reload()} title="רענן"><RefreshCw className="w-4 h-4"/></Button>
+               )}
+            </div>
 
-          <TabsContent value="inbox" className="space-y-4">
-            {inboxMessages.length === 0 ? (
-                <div className="text-center py-16 bg-white/50 rounded-xl border-2 border-dashed">
-                    <Mail className="w-12 h-12 text-gray-300 mx-auto mb-4"/>
-                    <p className="text-gray-500">תיבת הדואר ריקה</p>
-                </div>
-            ) : (
-                inboxMessages.map(msg => <MessageItem key={msg.id} msg={msg} type="inbox" />)
-            )}
-          </TabsContent>
+            <TabsList className="bg-gray-100">
+                <TabsTrigger value="inbox" className="gap-2">
+                    <Mail className="w-4 h-4"/> נכנס
+                    {inboxMessages.filter(m => !m.is_read).length > 0 && (
+                        <Badge className="bg-blue-600 h-5 px-1.5 text-[10px]">{inboxMessages.filter(m => !m.is_read).length}</Badge>
+                    )}
+                </TabsTrigger>
+                <TabsTrigger value="sent" className="gap-2"><Send className="w-4 h-4"/> יוצא</TabsTrigger>
+            </TabsList>
+          </div>
 
-          <TabsContent value="sent" className="space-y-4">
-            {sentMessages.length === 0 ? (
-                <div className="text-center py-16 bg-white/50 rounded-xl border-2 border-dashed">
-                    <Send className="w-12 h-12 text-gray-300 mx-auto mb-4"/>
-                    <p className="text-gray-500">לא נשלחו הודעות עדיין</p>
-                </div>
-            ) : (
-                sentMessages.map(msg => <MessageItem key={msg.id} msg={msg} type="sent" />)
-            )}
-          </TabsContent>
+          <Card className="rounded-t-none border-t-0 min-h-[500px]">
+            <CardContent className="p-0">
+                <TabsContent value="inbox" className="m-0">
+                    {inboxMessages.length === 0 ? (
+                        <div className="text-center py-20 text-gray-400">
+                            <Mail className="w-16 h-16 mx-auto mb-4 opacity-20"/>
+                            <p>אין הודעות נכנסות</p>
+                        </div>
+                    ) : inboxMessages.map(msg => <MessageItem key={msg.id} msg={msg} type="inbox" />)}
+                </TabsContent>
+
+                <TabsContent value="sent" className="m-0">
+                    {sentMessages.length === 0 ? (
+                        <div className="text-center py-20 text-gray-400">
+                            <Send className="w-16 h-16 mx-auto mb-4 opacity-20"/>
+                            <p>לא נשלחו הודעות</p>
+                        </div>
+                    ) : sentMessages.map(msg => <MessageItem key={msg.id} msg={msg} type="sent" />)}
+                </TabsContent>
+            </CardContent>
+          </Card>
         </Tabs>
-
       </div>
     </div>
   );

@@ -27,13 +27,13 @@ const DAYS = [
 
 export default function OfferHelp() {
   const navigate = useNavigate();
+  
   const [subjects, setSubjects] = useState([]);
   const [selectedSubjects, setSelectedSubjects] = useState([]);
   const [studyMaterial, setStudyMaterial] = useState("");
   const [availableHours, setAvailableHours] = useState({});
   const [lessonDuration, setLessonDuration] = useState("45");
   const [meetingPlace, setMeetingPlace] = useState("");
-  const [customPlace, setCustomPlace] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -77,14 +77,26 @@ export default function OfferHelp() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (selectedSubjects.length === 0 || Object.keys(availableHours).length === 0 || !meetingPlace) {
-      toast.error("נא למלא את כל שדות החובה: תחום, יום ומקום מפגש");
-      return;
+    
+    if (selectedSubjects.length === 0) {
+        toast.error("נא לבחור לפחות תחום אחד");
+        return;
+    }
+    if (Object.keys(availableHours).length === 0) {
+        toast.error("נא לבחור לפחות יום אחד");
+        return;
+    }
+    if (!meetingPlace) {
+        toast.error("נא לבחור מקום מפגש");
+        return;
     }
 
     setIsSubmitting(true);
+
     try {
       const user = auth.currentUser;
+      if (!user) return;
+
       const hoursArray = Object.entries(availableHours).map(([day, times]) => ({
         day,
         dayName: DAYS.find(d => d.id === day)?.name,
@@ -98,7 +110,7 @@ export default function OfferHelp() {
         study_material: studyMaterial,
         available_hours: hoursArray,
         lesson_duration: lessonDuration,
-        meeting_place: meetingPlace === "אחר" ? customPlace : meetingPlace,
+        meeting_place: meetingPlace,
         status: "פעיל",
         created_at: new Date(),
         start_date: new Date().toISOString(),
@@ -108,6 +120,7 @@ export default function OfferHelp() {
       toast.success("ההצעה פורסמה בהצלחה! 🎉");
       navigate("/calendar");
     } catch (error) {
+      console.error(error);
       toast.error("אירעה שגיאה בפרסום");
     } finally {
       setIsSubmitting(false);
@@ -128,7 +141,7 @@ export default function OfferHelp() {
       <div className="max-w-4xl mx-auto">
         <div className="sticky top-0 z-20 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 pb-4 pt-2">
           <Button variant="ghost" onClick={() => navigate("/dashboard")} className="bg-white shadow-md">
-            <ArrowRight className="ml-2 w-4 h-4" /> חזור
+            <ArrowRight className="ml-2 w-4 h-4" /> חזור לדף הבית
           </Button>
         </div>
 
@@ -173,7 +186,7 @@ export default function OfferHelp() {
                 </div>
               </div>
 
-              {/* פרטים נוספים - מעודכן */}
+              {/* פרטים נוספים */}
               <div>
                 <Label className="text-lg font-semibold mb-1 block">
                   פרטי חומר הלימוד (אופציונלי)
@@ -184,12 +197,12 @@ export default function OfferHelp() {
                 <Textarea
                   value={studyMaterial}
                   onChange={(e) => setStudyMaterial(e.target.value)}
-                  placeholder="לדוגמא ספר מתמטיקה כיתה ח' - עמודים 45-52 נושא משוואות ריבועיות"
+                  placeholder="לדוגמא: ספר מתמטיקה כיתה ח' - עמודים 45-52 נושא משוואות ריבועיות"
                   className="min-h-[80px] w-full border border-gray-300 shadow-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500" 
                 />
               </div>
 
-              {/* זמנים - מעודכן עם לחיצה על כל השורה */}
+              {/* זמנים */}
               <div>
                 <Label className="text-lg font-semibold mb-4 block">בחר ימים ושעות זמינות <Required/></Label>
                 <div className="space-y-3">
@@ -238,6 +251,8 @@ export default function OfferHelp() {
                     </SelectContent>
                   </Select>
                 </div>
+                
+                {/* תפריט המיקום המעודכן */}
                 <div>
                   <Label>מקום מפגש <Required/></Label>
                   <Select value={meetingPlace} onValueChange={setMeetingPlace}>
@@ -245,25 +260,14 @@ export default function OfferHelp() {
                     <SelectContent>
                       <SelectItem value="מקוון">מקוון</SelectItem>
                       <SelectItem value="בית הספר">בית הספר</SelectItem>
-                      <SelectItem value="אחר">אחר</SelectItem>
+                      <SelectItem value="הבית שלי">הבית שלי</SelectItem>
+                      <SelectItem value="בית התלמיד">בית התלמיד</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
-              {meetingPlace === "אחר" && (
-                <div>
-                  <Label>פרט את המקום</Label>
-                  <Input 
-                    value={customPlace} 
-                    onChange={(e) => setCustomPlace(e.target.value)} 
-                    className="mt-2 border-gray-300" 
-                    placeholder="הכנס מיקום..."
-                  />
-                </div>
-              )}
-
-              <Button type="submit" className="w-full py-6 bg-gradient-to-l from-purple-600 to-pink-600" disabled={isSubmitting}>
+              <Button type="submit" className="w-full py-6 bg-gradient-to-l from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white" disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="animate-spin" /> : "פרסם הצעה"}
               </Button>
             </form>

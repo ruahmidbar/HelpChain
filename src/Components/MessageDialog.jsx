@@ -3,7 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore, collection, addDoc } from "firebase/firestore";
 import { firebaseApp } from "../firebase/firebase";
 import { Button } from "./ui/button"; 
-import Textarea from "./ui/textarea"; // <-- תיקון: בלי סוגריים!
+import Textarea from "./ui/textarea"; 
 import { Label } from "./ui/label"; 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog"; 
 import { MessageCircle, Loader2 } from "lucide-react";
@@ -56,16 +56,17 @@ export default function MessageDialog({ targetUserId, targetUserName }) {
         <DialogHeader><DialogTitle>הודעה ל-{targetUserName}</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label>הודעה</Label>
+            <Label className="mb-2 block font-medium">תוכן ההודעה</Label>
+            {/* כאן הוספתי את העיצוב למסגרת וגובה */}
             <Textarea 
                 value={messageText} 
                 onChange={(e) => setMessageText(e.target.value)} 
-                className="mt-2" 
-                placeholder="כתוב כאן..."
+                className="min-h-[150px] w-full p-3 border border-gray-300 rounded-xl focus:border-purple-500 focus:ring-1 focus:ring-purple-500 text-base" 
+                placeholder="היי, ראיתי שאת/ה יכול/ה לעזור ב..."
             />
           </div>
-          <Button type="submit" className="w-full" disabled={isSending}>
-            {isSending ? <Loader2 className="animate-spin"/> : "שלח"}
+          <Button type="submit" className="w-full py-6" disabled={isSending}>
+            {isSending ? <Loader2 className="animate-spin"/> : "שלח הודעה"}
           </Button>
         </form>
       </DialogContent>
